@@ -20,7 +20,7 @@ end
 p1 = Person.new "Noah", 20 # all good
 
 p2 = Person.new :Name, 6.66
-# ArgumentError: expected argument 'name' to be of type String
+# ArgumentError: expected argument 'name' to be of type String, argument 'age' to be of type Integer
 
 Person.valid_dob?(Time.now) # all good
 

@@ -2,20 +2,31 @@ module TypedArguments
   VERSION = '0.0.1'
 
   class << self
-    attr_accessor :previous_guard, :defining
+    attr_accessor :current_guard, :defining
 
+    # Define a guard and wrap the method.
+    #
+    # @param type [Symbol] method type (either +:instance+ or +:singleton+)
+    # @param method [Method, UnboundedMethod]
     def define(type, method)
-      if !self.defining && pg = self.previous_guard
-        puts "defining #{type} #{method}"
+      if !self.defining && pg = self.current_guard
         self.defining = true
         Guard.new(type, method, pg).wrap!
         self.defining = false
-        self.previous_guard = nil
+        self.current_guard = nil
       end
     end
   end
 
+  # Method guard.
   class Guard
+    attr_reader :type, :original_method, :name, :owner, :types
+
+    # Initialize a new +Guard+.
+    #
+    # @param type [Symbol]
+    # @param original_method [Method, UnboundedMethod]
+    # @param spec [Array<Class>]
     def initialize(type, original_method, spec)
       @type = type
       @original_method = original_method
@@ -32,10 +43,20 @@ module TypedArguments
       end
     end
 
-    def original
-      [@owner.name, @name].join(@type == :instance ? '#' : '.')
+    def instance?
+      type == :instance
     end
 
+    # Get original class/method name.
+    #
+    # @return [String]
+    def original
+      [owner.name, name].join(instance? ? '#' : '.')
+    end
+
+    # Wrap the original method with guard.
+    #
+    # @return [void]
     def wrap!
       this = self
       m = @original_method
@@ -50,11 +71,14 @@ module TypedArguments
         m.bind(self).call(*args)
       end
 
-      new = @type == :instance ? new_inst : new_sing
+      new = @type == instance? ? new_inst : new_sing
 
       @owner.send(:define_method, @name, &new)
     end
 
+    # Ensure passed arguments satisfy guard spec.
+    #
+    # @param args [Array] array of arguments
     def ensure_matches(*args)
       res = @params.zip(args).map do |(type, name), arg|
         [name, type, type === arg]
@@ -62,30 +86,33 @@ module TypedArguments
 
       invalid = res.reject(&:last)
 
-      unless first = invalid.first
-        raise ArgumentError, "expected argument '#{first[0]}' to be of type #{first[1]}"
+      unless invalid.empty?
+        str = invalid.map { |name, type| "argument '#{name}' to be of type #{type}" }
+        raise ArgumentError, "expected #{str.join(', ')}"
       end
-    end
-
-    def matches?(*args)
-      @types.size == args.size && @types.zip(args).all? { |t, a| t === a }
     end
   end
 end
 
 class Array
+  # Set the guard to array contents.
+  #
+  # @example
+  #   +[Integer]
   def +@
-    TypedArguments.previous_guard = self.dup
+    TypedArguments.current_guard = self.dup
   end
 end
 
 class Object
+  # Attempt to wrap a freshly-created method in a guard.
   def self.method_added(name)
     super
 
     TypedArguments.define(:instance, instance_method(name))
   end
 
+  # Attempt to wrap a freshly-created method in a guard.
   def self.singleton_method_added(name)
     super
 
